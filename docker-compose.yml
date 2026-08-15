@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: goshopping-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-goshopping}
+      POSTGRES_USER: ${POSTGRES_USER:-goshopping}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-goshopping}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Depended on by the backend's migration step: wait for healthy, not just running.
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-goshopping} -d ${POSTGRES_DB:-goshopping}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  pgdata:
+    name: goshopping-pgdata
