@@ -226,3 +226,36 @@ commit. Never push without an explicit request.
 **Consequences.** The history reads as a record of how the project was assembled,
 which suits a learning project better than one opaque commit. Each commit is also
 a rollback point. Costs a little ceremony per phase.
+
+---
+
+### ADR-017 — Structured logging with `log/slog`, request logs bridged into it
+**Date:** 2026-08-15 · **Status:** Accepted
+
+**Decision.** The standard library's `log/slog` is the only logger. Echo's request
+logger is wired through `RequestLoggerWithConfig` into the same handler, so
+request and application lines share one format and destination. Text output in
+development, JSON elsewhere. Request status drives log level: 5xx logs at error,
+4xx at warn, everything else at info.
+
+**Consequences.** No third-party logging dependency. `HandleError: true` is
+required on the request logger so the central error handler runs first and the
+logged status matches what was actually sent.
+
+---
+
+### ADR-018 — Configuration is validated once at startup, reporting every problem
+**Date:** 2026-08-15 · **Status:** Accepted
+
+**Context.** Configuration read lazily fails at first use, often deep in a request
+and far from the cause.
+
+**Decision.** `config.Load` resolves and validates everything at boot and returns
+a single error listing *all* problems rather than the first one. Environment
+variables always beat `.env` files, so a shell override wins over a stale file.
+Production refuses to start on the placeholder `JWT_SECRET` or a secret under 32
+characters.
+
+**Consequences.** One run surfaces every misconfiguration instead of a fix-rerun
+loop. Cross-field rules live here too — for instance, a refresh TTL shorter than
+the access TTL is rejected, since such a token could never renew anything.

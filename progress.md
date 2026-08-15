@@ -1,8 +1,8 @@
 # Progress
 
 **Last updated:** 2026-08-15
-**Current status:** Phase 0 complete — workspace, Git, and Docker Compose in place.
-**Next up:** Phase 1 — backend skeleton (Go module, Echo server, config, pgx pool).
+**Current status:** Phase 1 complete — Echo server runs, `/healthz` reports database state.
+**Next up:** Phase 2 — migrations for `users`, `user_addresses`, and `sessions`.
 **Blockers:** None.
 
 Scope and requirements live in [project-setup.md](project-setup.md); the reasoning
@@ -25,13 +25,18 @@ happens only on request — see ADR-016.
 - [x] `README.md`
 - [x] Postgres verified reachable
 
-### Phase 1 — Backend skeleton ⬜
-- [ ] `go mod init`, dependencies installed
-- [ ] Layout: `cmd/server`, `internal/{config,db,model,repository,service,handler,middleware}`
-- [ ] Typed config loaded from env, failing fast on missing required values
-- [ ] pgx pool with health check
-- [ ] Echo server with request logging, recovery, CORS, graceful shutdown
-- [ ] `GET /healthz` returning DB status
+### Phase 1 — Backend skeleton ✅
+- [x] `go mod init github.com/prashant7163/goshopping/backend`; Echo v4.15.4, pgx v5.10.0, godotenv v1.5.1
+- [x] Packages: `cmd/server`, `internal/{config,db,apierror,middleware,handler}`
+      (`model`, `repository`, `service` land in Phases 2–3, when they have content)
+- [x] Typed config from env, aggregating every validation problem into one failure
+- [x] pgx pool, verified at startup rather than on first query
+- [x] Echo server: request ID, slog request logging, recovery, CORS, graceful shutdown
+- [x] Central error envelope via Echo's `HTTPErrorHandler`
+- [x] `GET /healthz` reporting DB status
+- [x] Verified: `go vet` and `gofmt` clean; health 200/503; error envelope on 404/405;
+      CORS allows `:5173` and refuses others; config and DB failures exit non-zero;
+      pool recovers from a database restart without restarting the server
 
 ### Phase 2 — Schema & migrations ⬜
 - [ ] golang-migrate wired in, runs on boot in development
