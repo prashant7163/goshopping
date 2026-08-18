@@ -30,17 +30,29 @@ func testStore(t *testing.T) (*repository.Store, *pgxpool.Pool, context.Context)
 		url = testDatabaseURL
 	}
 
+	// Skipping is right on a laptop with Docker stopped, and wrong in CI, where
+	// a green run that tested nothing is worse than no run at all (ADR-030).
+	// CI sets REQUIRE_DATABASE, which turns the skip into a failure.
+	required := os.Getenv("REQUIRE_DATABASE") != ""
+	unavailable := func(err error) {
+		t.Helper()
+		if required {
+			t.Fatalf("REQUIRE_DATABASE is set but no database is available: %v", err)
+		}
+		t.Skipf("no database available: %v", err)
+	}
+
 	ctx := context.Background()
 	connectCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	pool, err := pgxpool.New(connectCtx, url)
 	if err != nil {
-		t.Skipf("no database available: %v", err)
+		unavailable(err)
 	}
 	if err := pool.Ping(connectCtx); err != nil {
 		pool.Close()
-		t.Skipf("no database available: %v", err)
+		unavailable(err)
 	}
 	t.Cleanup(pool.Close)
 

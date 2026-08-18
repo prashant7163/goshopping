@@ -23,3 +23,11 @@
  * every layer — the override war ADR-005 exists to avoid.
  */
 @import 'tailwindcss';
+
+/*
+ * Probe classes for tests/cascade-layers.spec.ts, kept generated whether or not
+ * a component happens to use them. The check clones a real MUI button and adds
+ * these, so it measures the layering itself rather than whatever styling the
+ * pages currently carry — and it keeps working after Phase 5 replaces App.tsx.
+ */
+@source inline("bg-emerald-500 px-10");

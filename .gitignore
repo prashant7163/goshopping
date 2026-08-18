@@ -42,3 +42,8 @@ pgdata/
 # ---- OS ----
 .DS_Store
 Thumbs.db
+
+# ---- Playwright ----
+test-results/
+playwright-report/
+.playwright/

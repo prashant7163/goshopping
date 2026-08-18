@@ -108,6 +108,7 @@ npm run dev        # dev server on 5173 (strict — it fails rather than moving)
 npm run build      # type-check and build to dist/
 npm run preview    # serve the built output
 npm run lint       # oxlint
+npm run test:layers # Playwright: the MUI/Tailwind layer checks, dev + built
 ```
 
 The two styling systems are kept apart by CSS cascade layers, ordered
@@ -122,6 +123,26 @@ landing page until Phase 5 replaces it.
 Write layout and one-off styling as Tailwind classes. MUI v9 removed the system
 prop shorthands (`fontWeight`, `alignItems`), so `sx` is for theme-derived values
 and Tailwind covers the rest (ADR-032).
+
+Redux is wired at the root with a placeholder reducer — `authSlice` lands in
+Phase 5. Use the typed hooks in `src/app/hooks.ts` rather than the plain
+react-redux ones.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request.
+
+- **Backend** — against a Postgres 17 service container, with `REQUIRE_DATABASE=1`
+  so the integration tests fail rather than skip. Applies migrations, checks
+  `gofmt` and `go vet`, runs `go test ./...`, then runs `scripts/smoke_auth.sh`
+  against a live server.
+- **Frontend** — type-check, lint, and the Playwright layer suite in Chromium
+  against both the dev server and the built output.
+
+Both cover things that otherwise fail silently: a skipped database test looks
+identical to a passing one, and a wrong cascade layer order still builds, lints,
+and type-checks clean while flattening every MUI component. ADR-030 and ADR-033
+have the reasoning.
 
 ## API
 

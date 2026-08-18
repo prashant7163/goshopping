@@ -576,3 +576,36 @@ obviously mean "this prop was removed".
 **Consequences.** One way to express spacing and weight rather than two
 overlapping ones, and it exercises the layering from ADR-031 on every page. The
 cost is that MUI examples found online will often need translating.
+
+---
+
+### ADR-033 — CI runs on GitHub Actions, against a real database and a real browser
+**Date:** 2026-08-19 · **Status:** Accepted
+
+**Context.** Two of this project's rules cannot be checked by reading code, and
+both fail quietly. The cascade layer order (ADR-031) leaves the app building,
+type-checking, and linting clean while every MUI component renders flat. The
+repository tests (ADR-030) pass by skipping when no database is reachable.
+
+**Decision.** One workflow, two jobs. The backend job runs against a Postgres
+service container with `REQUIRE_DATABASE` set, so a skipped integration test is a
+failed build rather than a green one; it applies migrations, runs `gofmt`,
+`go vet`, the tests, and then `scripts/smoke_auth.sh` against a real server. The
+frontend job type-checks, lints, and runs the Playwright suite in Chromium
+against both the dev server and the production build.
+
+**Consequences.** Both silent failure modes are now loud. The layer suite was
+confirmed to fail before it was trusted: reverting to ADR-005's order failed two
+checks, and dropping `enableCssLayer` failed two different ones — while three
+checks still passed in each case, which is the argument for asserting that MUI's
+own styling survived the reset rather than only that Tailwind overrides
+something.
+
+Chromium alone, because what is being measured is how the cascade resolves
+layers rather than how an engine paints. Both servers, because Vite injects CSS
+as `<style>` elements in development and a `<link>` in the build, and the
+ordering bug turned on exactly that difference.
+
+The cost is a Playwright dependency and a browser download per run, and the
+`JWT_SECRET` the workflow sets so `config.Load` (ADR-018) will start at all — not
+a secret, since nothing in CI signs a token anybody will present.
