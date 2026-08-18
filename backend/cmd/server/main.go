@@ -20,6 +20,9 @@ import (
 	"github.com/prashant7163/goshopping/backend/internal/db"
 	"github.com/prashant7163/goshopping/backend/internal/handler"
 	appmw "github.com/prashant7163/goshopping/backend/internal/middleware"
+	"github.com/prashant7163/goshopping/backend/internal/repository"
+	"github.com/prashant7163/goshopping/backend/internal/security"
+	"github.com/prashant7163/goshopping/backend/internal/service"
 	"github.com/prashant7163/goshopping/backend/migrations"
 )
 
@@ -65,8 +68,22 @@ func run() error {
 		logger.Info("automatic migrations disabled", slog.String("env", cfg.AppEnv))
 	}
 
+	store := repository.New(pool)
+	auth := service.NewAuth(
+		store,
+		security.NewHasher(cfg.BcryptCost),
+		security.NewTokens(cfg.JWTSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL),
+		logger,
+	)
+
+	// Started before the server so a process that never serves a request still
+	// clears the table, and stopped before the pool closes: the returned func is
+	// deferred after pool.Close, and deferred calls run last in, first out.
+	stopReaper := service.NewReaper(store, cfg.SessionReapInterval, cfg.SessionReapGrace, logger).Start(ctx)
+	defer stopReaper()
+
 	e := newEcho(cfg, logger)
-	registerRoutes(e, pool)
+	registerRoutes(e, pool, auth)
 
 	srvErr := make(chan error, 1)
 	go func() {
@@ -126,9 +143,29 @@ func newEcho(cfg config.Config, logger *slog.Logger) *echo.Echo {
 	return e
 }
 
-func registerRoutes(e *echo.Echo, pool *pgxpool.Pool) {
+func registerRoutes(e *echo.Echo, pool *pgxpool.Pool, auth *service.Auth) {
 	health := handler.NewHealth(pool)
 	e.GET("/healthz", health.Check)
+
+	requireAuth := appmw.RequireAuth(auth)
+
+	authHandler := handler.NewAuth(auth)
+	userHandler := handler.NewUser(auth)
+
+	v1 := e.Group("/api/v1")
+
+	// Signup, login, and refresh are unauthenticated: each one is how a client
+	// obtains the credential the others require. Logout is not — it revokes the
+	// session the caller presents.
+	authRoutes := v1.Group("/auth")
+	authRoutes.POST("/signup", authHandler.Signup)
+	authRoutes.POST("/login", authHandler.Login)
+	authRoutes.POST("/refresh", authHandler.Refresh)
+	authRoutes.POST("/logout", authHandler.Logout, requireAuth)
+
+	userRoutes := v1.Group("/users", requireAuth)
+	userRoutes.GET("/me", userHandler.Me)
+	userRoutes.PATCH("/me/password", userHandler.ChangePassword)
 }
 
 func newLogger(cfg config.Config) *slog.Logger {

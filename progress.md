@@ -1,8 +1,8 @@
 # Progress
 
 **Last updated:** 2026-08-19
-**Current status:** Phase 2 complete — the schema exists and migrations run on boot in development.
-**Next up:** Phase 3 — auth and user endpoints.
+**Current status:** Phase 3 complete — the whole authentication surface is implemented and verified against a running server.
+**Next up:** Phase 4 — frontend scaffold.
 **Blockers:** None.
 
 Scope and requirements live in [project-setup.md](project-setup.md); the reasoning
@@ -54,18 +54,41 @@ happens only on request — see ADR-016.
       three concurrent `up` runs serialize on the advisory lock; a dirty database refuses to
       migrate until forced
 
-### Phase 3 — Auth & user endpoints ⬜
-- [ ] bcrypt hashing, password policy (min 8 chars, max 72 bytes)
-- [ ] Session service: issue, validate, rotate, revoke, revoke-all, reap
-- [ ] JWT middleware validating signature *and* session row
-- [ ] `POST /api/v1/auth/signup`
-- [ ] `POST /api/v1/auth/login`
-- [ ] `POST /api/v1/auth/refresh` — rotation with reuse detection
-- [ ] `POST /api/v1/auth/logout`
-- [ ] `GET /api/v1/users/me`
-- [ ] `PATCH /api/v1/users/me/password` — revokes all sessions, returns new pair
-- [ ] Uniform error envelope; no password hash in any response
-- [ ] Background session reaper on a ticker, stopped on shutdown
+### Phase 3 — Auth & user endpoints ✅
+- [x] Packages filled in: `model`, `repository`, `service`, plus `security` for
+      the pieces that are neither storage nor policy (hashing, token formats)
+- [x] bcrypt hashing, password policy (min 8 characters, max 72 bytes)
+- [x] Session service: issue, validate, rotate, revoke, revoke-all, reap
+- [x] JWT middleware validating signature *and* session row, loading the user in
+      the same query so `/users/me` costs no second round trip
+- [x] `POST /api/v1/auth/signup` — 201 with a token pair (ADR-024), 409 on a taken email
+- [x] `POST /api/v1/auth/login`
+- [x] `POST /api/v1/auth/refresh` — compare-and-swap rotation with reuse detection
+- [x] `POST /api/v1/auth/logout`
+- [x] `GET /api/v1/users/me`
+- [x] `PATCH /api/v1/users/me/password` — revokes all sessions, returns new pair
+- [x] Uniform error envelope; `password_hash` is `json:"-"` on the model, so no
+      response can carry it
+- [x] Background session reaper on a ticker, sweeping at startup and stopped
+      before the pool closes
+- [x] `UserAddress` model and repository, completing ADR-015's Step 1 half —
+      owner-scoped queries, and `SetDefault` refusing to run outside a transaction
+- [x] `scripts/smoke_auth.sh` — 40 assertions over the whole surface; Phase 6
+      extends it and records its output
+- [x] `internal/repository` integration tests covering the address rules the
+      schema enforces; they skip when no database is reachable
+- [x] Verified against a running server, all 40 assertions passing: signup is 201
+      and a differently-cased duplicate is 409; invalid signup reports all three
+      fields at once; a 73-byte password is refused; unknown email and wrong
+      password return byte-identical bodies; `/users/me` is 401 without a token,
+      with a garbage token, and after logout; rotation issues a new pair and
+      kills the previous access token; six concurrent refreshes of one token
+      yield exactly one 200; a replayed refresh token revokes every session for
+      that user and none for anyone else; a password change keeps the caller
+      signed in, signs out the other device, and stops it refreshing; the old
+      password no longer logs in; the reaper deletes rows past the grace window
+      and keeps ones inside it; CORS still answers a PATCH preflight from the
+      Vite origin and refuses another; `go vet`, `gofmt`, and `go test ./...` clean
 
 ### Phase 4 — Frontend scaffold ⬜
 - [ ] Vite + React + TypeScript

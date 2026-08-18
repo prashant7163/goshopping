@@ -332,3 +332,183 @@ the database never interprets. The hashes are stored as the raw SHA-256 digest
 rather than hex text: half the bytes, no encoding to agree on, and the length
 constraint turns "something other than a digest was written here" into an error
 at the point of the write.
+
+---
+
+### ADR-023 — `golang-jwt/jwt/v5` for access tokens, with the algorithm pinned
+**Date:** 2026-08-19 · **Status:** Accepted
+
+**Context.** ADR-008 settled on HS256 JWTs as the access-token format but not on
+an implementation. Hand-rolling one is a short piece of code and a long list of
+ways to get verification subtly wrong.
+
+**Decision.** `github.com/golang-jwt/jwt/v5`, parsed with `WithValidMethods`
+restricted to HS256, `WithIssuer("goshopping")`, and `WithExpirationRequired`.
+
+**Consequences.** Pinning the algorithm is the point of the choice: without it, a
+token declaring `alg: none` or an asymmetric algorithm verified against the HMAC
+secret is the classic JWT bypass. Requiring the issuer means a token minted by
+some other service that happened to share the secret is still refused. `v5`
+rather than `v4` because v5 is the maintained line and moved validation options
+out of a callback, where they were easy to omit.
+
+---
+
+### ADR-024 — Signup signs the new account in
+**Date:** 2026-08-19 · **Status:** Accepted
+
+**Context.** The Step 1 deliverables specify signup's status (`201`) and its
+failure (`409`) but not its response body, while login's body is spelled out.
+
+**Decision.** Signup creates a session and returns the same shape login does —
+`{access_token, refresh_token, token_type, expires_in, user}` — with `201`.
+
+**Consequences.** The frontend's signup thunk stores tokens and is done, instead
+of chaining a second request with credentials it has to keep in memory to do so.
+The cost is that signup writes a session row, so a stream of registrations that
+never sign in leaves rows for the reaper. Reverting to a bare `{user}` body would
+touch only the handler and the frontend thunk.
+
+---
+
+### ADR-025 — Services return sentinel errors; handlers choose status codes
+**Date:** 2026-08-19 · **Status:** Accepted
+
+**Context.** Something has to decide that a wrong password is a `401` and a
+duplicate email a `409`. Building `*apierror.Error` inside the service would be
+fewer lines, at the price of putting HTTP in the layer that is supposed to be
+independent of it.
+
+**Decision.** `service` exports `ErrInvalidCredentials`, `ErrEmailTaken`,
+`ErrInvalidToken`, `ErrUserNotFound`, and `ErrPasswordUnchanged`. One `translate`
+function in `handler` maps them, and anything unrecognized becomes a `500`.
+
+**Consequences.** The service stays callable from a future CLI or worker without
+dragging status codes along, and the mapping is one readable switch rather than a
+decision scattered across handlers. `default: Internal(err)` means a new sentinel
+that nobody adds a case for surfaces as a `500` — noisy, but noisy in the logs
+rather than silently mislabelled to the client.
+
+---
+
+### ADR-026 — A failed login costs the same whether or not the account exists
+**Date:** 2026-08-19 · **Status:** Accepted
+
+**Context.** The deliverables require unknown-email and wrong-password to return
+an identical message. That closes the obvious oracle and leaves a subtler one: a
+wrong password runs bcrypt at cost 12 and takes a few hundred milliseconds, while
+an unknown address returns as soon as the `SELECT` misses. The response time
+answers the question the message refuses to.
+
+**Decision.** When no user matches, compare the submitted password against a
+decoy hash — generated once from random bytes, on the first miss, at the
+configured cost — and discard the result.
+
+**Consequences.** Both failures cost one bcrypt comparison. This equalizes the
+dominant term, not every nanosecond; a determined attacker with clean timings
+might still find a signal, and the real defence against enumeration at volume is
+rate limiting, which Step 1 does not have. The decoy is built lazily so startup
+is not delayed by a hash that a healthy deployment may never need.
+
+---
+
+### ADR-027 — Rotation is a compare-and-swap, and slides the session's expiry
+**Date:** 2026-08-19 · **Status:** Accepted · extends ADR-008 and ADR-009
+
+**Context.** Refresh reads the session by refresh-token hash and then writes the
+new pair. Two requests carrying the same token can both complete the read before
+either writes.
+
+**Decision.** The rotating `UPDATE` carries `WHERE id = $1 AND refresh_hash = $2
+AND revoked_at IS NULL AND expires_at > now()`, and treats "no row updated" as a
+spent token. The new `expires_at` is `now() + JWT_REFRESH_TTL`, so an actively
+used session does not expire 30 days after it began.
+
+**Consequences.** Exactly one of a set of concurrent refreshes succeeds — verified
+by firing six at once and seeing one `200` and five `401`. The losers are
+indistinguishable from a replay and revoke every session for the user, which is
+precisely the failure ADR-012's single-flight client exists to prevent; the race
+being real, and its punishment total, is the argument for building single-flight
+before the first parallel request rather than after.
+
+Sliding the expiry means a session ends 30 days after its last use rather than
+30 days after login. There is no absolute cap on session lifetime; adding one
+would mean a second column, and is the kind of policy worth having a reason for
+beyond symmetry.
+
+---
+
+### ADR-028 — The reaper runs in-process, sweeping at startup and on a ticker
+**Date:** 2026-08-19 · **Status:** Accepted
+
+**Context.** Expired sessions are already inert — `IsActive` rejects them — so
+deleting them is housekeeping, not correctness. It still has to happen, or the
+table the middleware searches on every request grows forever.
+
+**Decision.** A goroutine started by the server, sweeping once immediately and
+then every `SESSION_REAP_INTERVAL`, deleting rows that expired or were revoked
+more than `SESSION_REAP_GRACE` ago. It stops before the connection pool closes.
+
+**Consequences.** No cron entry, no second deployable. With several instances
+they all sweep, which is harmless: the `DELETE` is idempotent and the losers
+simply remove nothing. Sweeping at startup rather than only after the first tick
+matters because the interval (24h) is longer than the interval between restarts
+in development, so the delayed form would effectively never run.
+
+The grace period keeps recently dead sessions readable, which is the difference
+between diagnosing "this expired yesterday" and finding no row at all. Revoked
+sessions are swept by revocation time, not expiry, or a session revoked on day
+one would sit until day thirty.
+
+---
+
+### ADR-029 — Moving the default address needs a transaction, and the repository insists
+**Date:** 2026-08-19 · **Status:** Accepted · extends ADR-013
+
+**Context.** ADR-013 made "at most one default address per user" a partial unique
+index. Moving the default therefore means clearing one row and setting another,
+and the obvious single statement —
+
+```sql
+UPDATE user_addresses SET is_default = (id = $1) WHERE user_id = $2 AND (id = $1 OR is_default)
+```
+
+— succeeds or fails depending on which row the scan reaches first. Tried both
+ways against PostgreSQL 17: clearing-then-setting worked, and the same statement
+in the other direction failed with a duplicate key on the index. The index is
+checked as each row is written, and a partial unique *index* cannot be made
+deferrable the way a unique *constraint* can.
+
+**Decision.** `SetDefault` clears first and then sets, as two statements, and
+returns an error unless it is running inside `Store.Tx`. The `Store` a
+transaction hands to its callback knows it is transactional; the one built over
+the pool does not.
+
+**Consequences.** A caller who forgets the transaction gets a loud error instead
+of an interruption that could leave a user with no default address at all. The
+check costs a boolean field on the repository. Ordinary reads and writes are
+unaffected — only this one operation spans two rows.
+
+---
+
+### ADR-030 — Repository tests run against a real PostgreSQL, and skip without one
+**Date:** 2026-08-19 · **Status:** Accepted
+
+**Context.** The address repository ships in Step 1 with no endpoints in front of
+it until Step 2 (ADR-015), so nothing would exercise it. What most needs
+exercising is behaviour that belongs to PostgreSQL rather than to Go: the partial
+unique index, the `updated_at` trigger, `ON DELETE CASCADE`, and the row-order
+sensitivity in ADR-029. A mock would assert only that the code sends the SQL it
+sends.
+
+**Decision.** `internal/repository` has integration tests that connect to the
+development database, create throwaway accounts, and remove them afterwards. With
+no database reachable they call `t.Skip`, so `go test ./...` still passes on a
+machine that has not started Docker.
+
+**Consequences.** The tests verify the invariants the schema actually enforces.
+They need a running database to mean anything, and skipping quietly means a
+misconfigured CI could report success while testing nothing — so any CI added
+later must fail if these skip. They also share one database rather than a fresh
+one per run, which is why each test creates its own user and scopes everything to
+it.
