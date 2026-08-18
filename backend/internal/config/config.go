@@ -27,9 +27,10 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	LogLevel        string
 
-	DatabaseURL string
-	DBMaxConns  int32
-	DBMinConns  int32
+	DatabaseURL   string
+	DBMaxConns    int32
+	DBMinConns    int32
+	DBAutoMigrate bool
 
 	JWTSecret     string
 	JWTAccessTTL  time.Duration
@@ -67,8 +68,12 @@ func Load(envFiles ...string) (Config, error) {
 	}
 
 	var l loader
+
+	// Read first: it decides the default for DB_AUTO_MIGRATE below.
+	appEnv := l.text("APP_ENV", envDevelopment)
+
 	cfg := Config{
-		AppEnv:          l.text("APP_ENV", envDevelopment),
+		AppEnv:          appEnv,
 		ServerPort:      l.number("SERVER_PORT", 8080),
 		ShutdownTimeout: l.duration("SERVER_SHUTDOWN_TIMEOUT", 10*time.Second),
 		LogLevel:        l.text("LOG_LEVEL", "info"),
@@ -76,6 +81,10 @@ func Load(envFiles ...string) (Config, error) {
 		DatabaseURL: l.text("DATABASE_URL", ""),
 		DBMaxConns:  int32(l.number("DB_MAX_CONNS", 10)),
 		DBMinConns:  int32(l.number("DB_MIN_CONNS", 2)),
+		// Convenient in development, where the schema changes often. Elsewhere
+		// migrating is a deliberate deploy step, run before the new binary
+		// starts serving (ADR-019).
+		DBAutoMigrate: l.boolean("DB_AUTO_MIGRATE", appEnv == envDevelopment),
 
 		JWTSecret:     l.text("JWT_SECRET", ""),
 		JWTAccessTTL:  l.duration("JWT_ACCESS_TTL", 24*time.Hour),
@@ -201,6 +210,19 @@ func (l *loader) number(key string, fallback int) int {
 	v, err := strconv.Atoi(raw)
 	if err != nil {
 		l.problemf("%s must be an integer (got %q)", key, raw)
+		return fallback
+	}
+	return v
+}
+
+func (l *loader) boolean(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		l.problemf("%s must be a boolean such as true or false (got %q)", key, raw)
 		return fallback
 	}
 	return v

@@ -1,8 +1,8 @@
 # Progress
 
-**Last updated:** 2026-08-15
-**Current status:** Phase 1 complete — Echo server runs, `/healthz` reports database state.
-**Next up:** Phase 2 — migrations for `users`, `user_addresses`, and `sessions`.
+**Last updated:** 2026-08-19
+**Current status:** Phase 2 complete — the schema exists and migrations run on boot in development.
+**Next up:** Phase 3 — auth and user endpoints.
 **Blockers:** None.
 
 Scope and requirements live in [project-setup.md](project-setup.md); the reasoning
@@ -38,12 +38,21 @@ happens only on request — see ADR-016.
       CORS allows `:5173` and refuses others; config and DB failures exit non-zero;
       pool recovers from a database restart without restarting the server
 
-### Phase 2 — Schema & migrations ⬜
-- [ ] golang-migrate wired in, runs on boot in development
-- [ ] `000001_create_users` — `citext` email, bcrypt hash, timestamps
-- [ ] `000002_create_user_addresses` — FK cascade, partial unique index on default
-- [ ] `000003_create_sessions` — `access_jti`, `refresh_hash`, `previous_refresh_hash`, `revoked_at`
-- [ ] Down migrations verified to reverse cleanly
+### Phase 2 — Schema & migrations ✅
+- [x] golang-migrate wired in over pgx's `stdlib` adapter, no second driver
+- [x] Migrations embedded with `go:embed`, so neither binary depends on the working directory
+- [x] Runs on boot while `DB_AUTO_MIGRATE` is true — the default in development only (ADR-019)
+- [x] `cmd/migrate` for the deliberate path: `up`, `down [n|all]`, `version`, `force`
+- [x] `000001_create_users` — `citext` email, bcrypt-shaped hash, uuid key, `updated_at` trigger
+- [x] `000002_create_user_addresses` — FK cascade, partial unique index on default
+- [x] `000003_create_sessions` — `access_jti`, `refresh_hash`, `previous_refresh_hash`,
+      `revoked_at`, `expires_at`, `user_agent`, indexed for the middleware and the reaper
+- [x] Verified: citext rejects a differently-cased duplicate; a plaintext password fails the
+      bcrypt check; a second default address is refused; a non-32-byte refresh hash is refused;
+      rotation in place keeps `sessions.id` stable; deleting a user cascades to both children;
+      `updated_at` bumps on update; `down all` leaves no tables, no `citext`, no trigger function;
+      three concurrent `up` runs serialize on the advisory lock; a dirty database refuses to
+      migrate until forced
 
 ### Phase 3 — Auth & user endpoints ⬜
 - [ ] bcrypt hashing, password policy (min 8 chars, max 72 bytes)

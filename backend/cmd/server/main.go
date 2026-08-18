@@ -20,6 +20,7 @@ import (
 	"github.com/prashant7163/goshopping/backend/internal/db"
 	"github.com/prashant7163/goshopping/backend/internal/handler"
 	appmw "github.com/prashant7163/goshopping/backend/internal/middleware"
+	"github.com/prashant7163/goshopping/backend/migrations"
 )
 
 func main() {
@@ -53,6 +54,16 @@ func run() error {
 		slog.Int("max_conns", int(cfg.DBMaxConns)),
 		slog.Int("min_conns", int(cfg.DBMinConns)),
 	)
+
+	// Before the first request, so a half-migrated schema is a startup failure
+	// rather than a runtime one.
+	if cfg.DBAutoMigrate {
+		if err := db.Migrate(cfg.DatabaseURL, migrations.FS, logger); err != nil {
+			return err
+		}
+	} else {
+		logger.Info("automatic migrations disabled", slog.String("env", cfg.AppEnv))
+	}
 
 	e := newEcho(cfg, logger)
 	registerRoutes(e, pool)

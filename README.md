@@ -27,7 +27,7 @@ cp frontend/.env.example frontend/.env
 docker compose up -d
 docker compose ps          # wait for postgres to report "healthy"
 
-# 3. Backend (from ./backend, once Phase 1 lands)
+# 3. Backend (from ./backend) — migrates the schema on boot in development
 go run ./cmd/server
 
 # 4. Frontend (from ./frontend, once Phase 4 lands)
@@ -79,3 +79,21 @@ docker compose down -v             # stop and delete the volume (destroys data)
 # psql shell
 docker compose exec postgres psql -U goshopping -d goshopping
 ```
+
+## Migrations
+
+The server applies pending migrations at startup while `DB_AUTO_MIGRATE` is true,
+which it is by default in development. Set it to false and migrate deliberately
+with the standalone command (from `./backend`):
+
+```bash
+go run ./cmd/migrate up          # apply every pending migration
+go run ./cmd/migrate down        # roll back one
+go run ./cmd/migrate down all    # roll back everything
+go run ./cmd/migrate version     # print the applied version
+go run ./cmd/migrate force 3     # clear the dirty flag after a hand-fixed failure
+```
+
+Migration files live in [backend/migrations/](backend/migrations/) as numbered
+`.up.sql`/`.down.sql` pairs and are embedded in the binary, so neither command
+depends on the working directory.
