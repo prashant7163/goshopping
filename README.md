@@ -30,7 +30,7 @@ docker compose ps          # wait for postgres to report "healthy"
 # 3. Backend (from ./backend) — migrates the schema on boot in development
 go run ./cmd/server
 
-# 4. Frontend (from ./frontend, once Phase 4 lands)
+# 4. Frontend (from ./frontend)
 npm install && npm run dev
 ```
 
@@ -97,6 +97,31 @@ go run ./cmd/migrate force 3     # clear the dirty flag after a hand-fixed failu
 Migration files live in [backend/migrations/](backend/migrations/) as numbered
 `.up.sql`/`.down.sql` pairs and are embedded in the binary, so neither command
 depends on the working directory.
+
+## Frontend
+
+React 19 on Vite 8, with MUI v9 for components and Tailwind v4 for layout and
+overrides. From `./frontend`:
+
+```bash
+npm run dev        # dev server on 5173 (strict — it fails rather than moving)
+npm run build      # type-check and build to dist/
+npm run preview    # serve the built output
+npm run lint       # oxlint
+```
+
+The two styling systems are kept apart by CSS cascade layers, ordered
+`theme, base, mui, components, utilities` — Tailwind's reset below MUI, MUI below
+Tailwind's utilities. That statement is inline in `index.html` rather than in
+`index.css`, because MUI injects its baseline at the top of `<head>` at runtime
+and a declaration in a stylesheet arrives too late to order anything. ADR-031
+has the full reasoning; getting it wrong does not throw, it just quietly flattens
+every MUI component, so the app renders its own check of the arrangement on the
+landing page until Phase 5 replaces it.
+
+Write layout and one-off styling as Tailwind classes. MUI v9 removed the system
+prop shorthands (`fontWeight`, `alignItems`), so `sx` is for theme-derived values
+and Tailwind covers the rest (ADR-032).
 
 ## API
 

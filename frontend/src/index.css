@@ -1,0 +1,25 @@
+/*
+ * Tailwind, plus the reasoning for where MUI sits among its layers.
+ *
+ * The authoritative `@layer theme, base, mui, components, utilities;` statement
+ * is inline in index.html, and has to be — see the comment there. This file
+ * only has to avoid contradicting it.
+ *
+ * The position of `mui` is the whole point, and it belongs between the two
+ * halves of Tailwind:
+ *
+ *   theme, base            Tailwind's variables and its preflight reset
+ *   mui                    everything Emotion emits for MUI components
+ *   components, utilities  Tailwind's component and utility classes
+ *
+ * Above the reset, because preflight strips `button` back to a transparent box
+ * with no padding; ranked below it, MUI's own component styles lose and every
+ * Button renders flat. Below the utilities, so `className="bg-emerald-500"`
+ * still wins without `!important` and without counting selectors.
+ *
+ * MUI's rules only land in that layer because <StyledEngineProvider
+ * enableCssLayer> wraps every rule Emotion emits in `@layer mui` (see
+ * main.tsx). Without the prop they are unlayered, and unlayered styles beat
+ * every layer — the override war ADR-005 exists to avoid.
+ */
+@import 'tailwindcss';

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+
+    <!--
+      The cascade layer order, declared here rather than in index.css because
+      this is the only place guaranteed to come first.
+
+      MUI's global styles (CssBaseline) are inserted at the very top of <head>
+      at runtime, before any stylesheet a bundler injects. Since the cascade
+      ranks layers by where their names first appear, a declaration living in
+      index.css arrives too late: `mui` is already established as the first —
+      and therefore weakest — layer, and Tailwind's preflight wins against MUI's
+      own component styles. Buttons come out transparent and unpadded.
+
+      Emotion inserts its global styles immediately before the meta tag below.
+      Providing that tag ourselves, after this <style>, is what keeps them on
+      the right side of the declaration; left to itself, MUI prepends its own
+      and lands above it again.
+
+      Order rationale lives in src/index.css, next to the Tailwind import.
+    -->
+    <style>
+      @layer theme, base, mui, components, utilities;
+    </style>
+    <meta name="emotion-insertion-point" content="" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GoShopping</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

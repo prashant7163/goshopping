@@ -61,7 +61,7 @@ Go (loses plain reviewable SQL).
 ---
 
 ### ADR-005 — MUI and Tailwind v4 coexist via CSS cascade layers
-**Date:** 2026-08-15 · **Status:** Accepted
+**Date:** 2026-08-15 · **Status:** Accepted — layer order superseded by ADR-031
 
 **Context.** Tailwind's preflight and MUI's baseline both emit resets and fight
 over specificity, producing overrides that are hard to diagnose after the fact.
@@ -72,6 +72,9 @@ verified against MUI v9's shipped types rather than assumed.
 
 **Consequences.** Tailwind utilities reliably win over MUI defaults. Set up before
 any UI is written, since retrofitting means re-auditing every component.
+
+**Correction.** The order quoted above is wrong, and where it is declared matters
+as much as what it says. Both are settled in ADR-031, which is the one to read.
 
 ---
 
@@ -512,3 +515,64 @@ misconfigured CI could report success while testing nothing — so any CI added
 later must fail if these skip. They also share one database rather than a fresh
 one per run, which is why each test creates its own user and scopes everything to
 it.
+
+---
+
+### ADR-031 — MUI's layer sits between Tailwind's reset and its utilities, declared in `index.html`
+**Date:** 2026-08-19 · **Status:** Accepted — supersedes the layer order in ADR-005
+
+**Context.** ADR-005 fixed the mechanism — cascade layers — and quoted the order
+from the original brief: `@layer mui, theme, base, components, utilities;`, with
+the note that the API should be verified rather than assumed. Two things about
+that turned out to be wrong, and both fail silently.
+
+**The order.** Ranking `mui` first makes it the *weakest* layer, so Tailwind's
+preflight beats MUI's own component styles. Preflight resets `button` to a
+transparent box with no padding, so every MUI Button renders flat. What made this
+worth catching properly is that the obvious test still passes: "does a Tailwind
+background beat the MUI background" is trivially true when MUI no longer has one.
+Measured in Chrome, a contained Button came out `rgba(0, 0, 0, 0)` with `0px`
+padding.
+
+**The placement.** Declaring the order in `index.css` is too late. MUI inserts
+its `CssBaseline` styles at the very top of `<head>` at runtime — before any
+stylesheet Vite injects — so `mui` is already established as the first layer by
+the time the declaration is parsed. The cascade ranks layers by where their names
+*first appear*, and a later statement cannot reorder them.
+
+**Decision.** The statement is `@layer theme, base, mui, components, utilities;`,
+inline in `index.html`, immediately followed by
+`<meta name="emotion-insertion-point" content="" />`. MUI reuses that tag rather
+than prepending its own, which is what keeps its global styles below the
+declaration instead of above it. `<StyledEngineProvider enableCssLayer>` at the
+root is what puts MUI's rules in the `mui` layer at all — verified against MUI
+v9.3.1's shipped source, which wraps each Emotion rule in `@layer mui { … }` and
+gives that cache its own key.
+
+**Consequences.** MUI components keep their own styling, and Tailwind utilities
+still override them with no `!important` and no specificity games. Resulting
+order in the browser: `theme < base < mui < components < utilities`. Two files
+now have to agree, which is why `index.html` carries the reasoning and
+`src/index.css` points at it.
+
+The check lives in the app itself (`src/App.tsx`), asserting against computed
+styles in a real browser, because Emotion injects at runtime and none of this is
+visible in the built stylesheet. It includes the case that would otherwise pass
+by accident: that MUI's own button styling survived the reset.
+
+---
+
+### ADR-032 — MUI v9 drops the system-prop shorthands
+**Date:** 2026-08-19 · **Status:** Accepted
+
+**Context.** `<Typography fontWeight={700}>` and `<Stack alignItems="center">`
+are how MUI v5 and v6 were usually written. In v9 those props no longer exist,
+and the compiler says so through a long overload-resolution error that does not
+obviously mean "this prop was removed".
+
+**Decision.** Use Tailwind utility classes for that kind of styling — `font-bold`,
+`items-center` — and reserve `sx` for values that have to come from the theme.
+
+**Consequences.** One way to express spacing and weight rather than two
+overlapping ones, and it exercises the layering from ADR-031 on every page. The
+cost is that MUI examples found online will often need translating.

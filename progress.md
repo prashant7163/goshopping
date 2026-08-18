@@ -1,8 +1,8 @@
 # Progress
 
 **Last updated:** 2026-08-19
-**Current status:** Phase 3 complete — the whole authentication surface is implemented and verified against a running server.
-**Next up:** Phase 4 — frontend scaffold.
+**Current status:** Phase 4 complete — the frontend builds, and Tailwind overriding MUI is verified in a real browser rather than assumed.
+**Next up:** Phase 5 — Redux, routing, and pages.
 **Blockers:** None.
 
 Scope and requirements live in [project-setup.md](project-setup.md); the reasoning
@@ -90,11 +90,29 @@ happens only on request — see ADR-016.
       and keeps ones inside it; CORS still answers a PATCH preflight from the
       Vite origin and refuses another; `go vet`, `gofmt`, and `go test ./...` clean
 
-### Phase 4 — Frontend scaffold ⬜
-- [ ] Vite + React + TypeScript
-- [ ] Tailwind v4 via `@tailwindcss/vite`
-- [ ] MUI v9 + Emotion, cascade layers verified working
-- [ ] Redux Toolkit, react-redux, react-router-dom
+### Phase 4 — Frontend scaffold ✅
+- [x] Vite 8 + React 19 + TypeScript, `strictPort` on 5173 so the origin the
+      backend allows cannot drift
+- [x] Tailwind v4.3 via `@tailwindcss/vite`
+- [x] MUI v9.3 + Emotion, `<StyledEngineProvider enableCssLayer>` at the root
+- [x] Cascade layers **corrected and verified**: the order in ADR-005 ranked
+      `mui` below Tailwind's preflight, which strips MUI's own button styling —
+      it now reads `theme, base, mui, components, utilities` and lives inline in
+      `index.html`, since a declaration in `index.css` is parsed too late to
+      order anything (ADR-031)
+- [x] Redux Toolkit, react-redux, react-router-dom installed; `BrowserRouter`
+      wired at the root. The Redux `<Provider>` and store land in Phase 5, with
+      the first slice — an empty store would only be scaffolding for scaffolding
+- [x] MUI theme, `CssBaseline`, and `VITE_API_BASE_URL` reaching the app
+- [x] Verified in headless Chrome against both the dev server and the production
+      build: MUI's contained Button keeps its theme background `rgb(15, 118, 110)`
+      and 16px padding, while the same Button under `bg-emerald-500 px-10` reports
+      emerald and 40px — so the reset does not beat MUI and Tailwind does, with no
+      `!important` anywhere; layer order reads `theme < base < mui < components <
+      utilities`; 11 rule blocks arrive wrapped in `@layer mui`; a nested route
+      renders; no console errors; `tsc -b` and `oxlint` clean
+- [x] `src/App.tsx` carries those assertions as a visible self-check, so the
+      arrangement cannot rot unnoticed; Phase 5 replaces it with the real pages
 
 ### Phase 5 — Redux, routing, pages ⬜
 - [ ] `tokenStorage` seam + hydration before first render
